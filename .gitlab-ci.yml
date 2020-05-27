@@ -1,0 +1,87 @@
+stages:
+  - 资源拉取
+  - 构建代码
+  - 部署程序
+
+# 常量参数
+variables:
+  # registry
+  REGISTRY_PATH: registry-vpc.cn-shanghai.aliyuncs.com
+  # deploy file path
+  DEPLOY_PATH: /usr/share/we-mapp/deploy
+  # version information
+  VERSION_PATH: /usr/share/we-mapp/version
+  # build version
+  VERSION_PREFIX: TEST_
+
+  IMAGE_TAG: latest
+  REPOS_TAG_PREFIX: TEST_
+
+  # sleep wait time
+  WAIT_TIME: 5
+
+#cache:
+#  paths:
+#  - node_modules/
+
+资源拉取:
+  stage: 资源拉取
+  script:
+    - echo "资源拉取开始>>>"
+    - npm install
+    - echo "资源拉取结束<<<"
+  when: manual
+
+构建代码:
+  stage: 构建代码
+  script:
+    - echo "构建管理前端代码开始>>>"
+    - echo "资源拉取开始>>>"
+    - npm install
+    - echo "资源拉取结束<<<"
+    - echo "构建代码开始>>>"
+    - npm run build:test
+    - echo "构建代码结束<<<"
+    - echo "构建管理前端代码结束<<<"
+  when: manual
+
+部署程序:
+  stage: 部署程序
+  script:
+    - echo "部署管理前端开始>>>"
+    - echo "资源拉取开始>>>"
+    - npm install
+    - echo "资源拉取结束<<<"
+    - echo "构建代码开始>>>"
+    - npm run build:test
+    - echo "构建代码结束<<<"
+    - echo "生成版本号开始>>>"
+    - |
+      version=$(cat $VERSION_PATH/version_system.index)
+      newversion=$(($version + 1))
+      echo "原始版本号$version 新版本号$newversion"
+      sed -i "s/$version/$newversion/" $VERSION_PATH/version_system.index
+    - VERSION=$VERSION_PREFIX$(cat $VERSION_PATH/version_system.index)
+    - REPOS_TAG=$REPOS_TAG_PREFIX$(cat $VERSION_PATH/version_system.index)
+    - echo "生成后版本号:$VERSION 镜像版本号:$REPOS_TAG"
+    - echo "生成版本号结束<<<"
+    - echo "构建镜像-->"
+    - docker build . -t mapp/mapp-client-system:$IMAGE_TAG
+    - echo "推送镜像到私服开始>>>"
+    - echo "推送前镜像列表-->"
+    - docker image list
+    - docker tag mapp/mapp-client-system:$IMAGE_TAG $REGISTRY_PATH/we-tests/mapp-client-system:$REPOS_TAG
+    - docker push $REGISTRY_PATH/we-tests/mapp-client-system:$REPOS_TAG
+    - echo "推送后镜像列表-->"
+    - docker image list
+    - echo "推送镜像到私服结束<<<"
+    - echo "部署业务模块开始>>>"
+    - cat $DEPLOY_PATH/15-01-mapp-client-system-dep.yml | sed "s/_VERSION_/$VERSION/" | sed "s/$IMAGE_TAG/$REPOS_TAG/" | kubectl -nmapp apply -f -
+    - sleep $WAIT_TIME
+#  - kubectl -nmapp apply -f $DEPLOY_PATH/15-02-mapp-client-system-svc.yml
+    - kubectl -nmapp apply -f $DEPLOY_PATH/15-03-mapp-client-system-cip.yml
+    - sleep $WAIT_TIME
+    - kubectl -nmapp apply -f $DEPLOY_PATH/15-04-mapp-client-system-ing.yml
+    - echo "部署业务模块结束<<<"
+    - echo "部署管理前端结束<<<"
+  when: manual
